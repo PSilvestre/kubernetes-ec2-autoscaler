@@ -1,5 +1,5 @@
 .idea
 *.pyc
 .mypy_cache
-.build/
+/build
 autoscaler-secret.yaml

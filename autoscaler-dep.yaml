@@ -31,7 +31,7 @@ rules:
   verbs: ["get","update"]
 - apiGroups: [""]
   resources: ["nodes"]
-  verbs: ["watch","list","get","update"]
+  verbs: ["watch","list","get","update", "patch", "delete"]
 - apiGroups: [""]
   resources: ["pods","services","replicationcontrollers","persistentvolumeclaims","persistentvolumes"]
   verbs: ["watch","list","get"]
@@ -164,7 +164,12 @@ spec:
             - --sleep
             - "30"
             - --instance-init-time
-            - "2100"
+            - "3000"
+            - --drain-utilization
+            - "0.5"
+            - --max-scale-in-fraction
+            - "1.0"
+            - --ignore-system-pods
         imagePullPolicy: Always
       restartPolicy: Always
 #      dnsPolicy: Default  # Don't use cluster DNS.

@@ -21,6 +21,7 @@ DEBUG_LOGGING_MAP = {
 @click.option("--cluster-name")
 @click.option("--aws-regions", default="us-west-1")
 @click.option("--sleep", default=60)
+@click.option("--ignore-system-pods", is_flag=True)
 @click.option("--kubeconfig", default=None,
               help='Full path to kubeconfig file. If not provided, '
                    'we assume that we\'re running on kubernetes.')
@@ -57,7 +58,7 @@ DEBUG_LOGGING_MAP = {
                    "for more verbosity.",
               type=click.IntRange(0, 3, clamp=True),
               count=True)
-def main(cluster_name, aws_regions, azure_resource_groups, azure_slow_scale_classes, sleep, kubeconfig,
+def main(cluster_name, aws_regions, ignore_system_pods, azure_resource_groups, azure_slow_scale_classes, sleep, kubeconfig,
          azure_client_id, azure_client_secret, azure_subscription_id, azure_tenant_id,
          aws_access_key, aws_secret_key, use_aws_iam_role, pod_namespace, datadog_api_key,
          idle_threshold, type_idle_threshold, max_scale_in_fraction, drain_utilization,
@@ -78,6 +79,7 @@ def main(cluster_name, aws_regions, azure_resource_groups, azure_slow_scale_clas
                       aws_secret_key=aws_secret_key,
                       use_aws_iam_role=use_aws_iam_role,
                       aws_regions=aws_regions_list,
+                      ignore_system_pods=ignore_system_pods,
                       azure_client_id=azure_client_id,
                       azure_client_secret=azure_client_secret,
                       azure_subscription_id=azure_subscription_id,

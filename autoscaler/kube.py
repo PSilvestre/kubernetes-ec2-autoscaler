@@ -42,6 +42,10 @@ class KubePod(object):
         self.start_time = dateutil_parse(pod.obj['status']['startTime']) if 'startTime' in pod.obj['status'] else None
         self.scheduled_time = None
 
+        owner = metadata.get('ownerReferences', None)
+
+        self.controlled_by = owner[0]['kind'] if owner is not None else None
+
         for condition in pod.obj['status'].get('conditions', []):
             if condition['type'] == 'PodScheduled' and condition['status'] == 'True':
                 self.scheduled_time = dateutil_parse(condition['lastTransitionTime'])
@@ -84,10 +88,12 @@ class KubePod(object):
                 continue
             self.required_pod_anti_affinity_expressions.append(expression['labelSelector']['matchExpressions'])
 
+    def get_namespace(self):
+        return self.namespace
 
     def is_mirrored(self):
         created_by = json.loads(self.annotations.get('kubernetes.io/created-by', '{}'))
-        is_daemonset = created_by.get('reference', {}).get('kind') == 'DaemonSet'
+        is_daemonset = self.controlled_by.startswith('DaemonSet') if self.controlled_by is not None else False
         return is_daemonset or self.annotations.get('kubernetes.io/config.mirror')
 
     def is_replicated(self):
@@ -196,7 +202,7 @@ class KubeNode(object):
         provider = self.original.obj['spec'].get('providerID', '')
         if not provider:
             return (None, 'placeholder','placeholder', 'bare-metal')
-        if provider.startswith('aws://'):
+        if provider.startswith('aws:///'):
             az, instance_id = tuple(provider.split('/')[-2:])
             if az and instance_id:
                 return (instance_id, az[:-1], instance_type, 'aws')

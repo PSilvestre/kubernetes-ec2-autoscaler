@@ -61,6 +61,7 @@ class AutoScalingGroups(object):
 
                 client = self.session.client(self._BOTO_CLIENT_TYPE,
                                              region_name=region)
+                logger.info('ASG tags: ')
                 for raw_group in sorted(raw_groups, key=lambda g: g['AutoScalingGroupName']):
                         for tag in raw_group['Tags']:
                             logger.info(tag['Key'] + ' ' + tag['Value'])

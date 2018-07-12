@@ -79,7 +79,7 @@ class Cluster(object):
         'm4.10xlarge': 0
     }
 
-    def __init__(self, aws_regions, aws_access_key, aws_secret_key,
+    def __init__(self, aws_regions, aws_access_key, aws_secret_key, ignore_system_pods,
                  azure_client_id, azure_client_secret, azure_subscription_id, azure_tenant_id,
                  azure_resource_group_names, azure_slow_scale_classes, kubeconfig,
                  idle_threshold, type_idle_threshold, pod_namespace,
@@ -104,7 +104,7 @@ class Cluster(object):
             self.pod_namespace = pykube.all
         else:
             self.pod_namespace = pod_namespace
-
+        self.ignore_system_pods = ignore_system_pods
         self.drain_utilization_below = drain_utilization_below
         self.max_scale_in_fraction = max_scale_in_fraction
         self._drained = {}
@@ -736,6 +736,7 @@ class Cluster(object):
         # we consider a node to be busy if it's running any non-DaemonSet pods
         # TODO: we can be a bit more aggressive in killing pods that are
         # replicated
+
         busy_list = [p for p in node_pods if not p.is_mirrored()]
         undrainable_list = [p for p in node_pods if not p.is_drainable()]
         utilization = sum((p.resources for p in busy_list), KubeResource())
@@ -757,6 +758,18 @@ class Cluster(object):
         type_spare_capacity = (instance_type and self.type_idle_threshold and
                                idle_selector_hash[instance_type] < self.TYPE_IDLE_COUNT)
 
+        system_pods = [p for p in node_pods if p.get_namespace() == 'kube-system']
+        system_pods_utilization = sum((p.resources for p in system_pods), KubeResource())
+        if self.ignore_system_pods:
+            under_utilized = (self.drain_utilization_below *
+                              (node.capacity-system_pods_utilization) - (utilization-system_pods_utilization)).possible
+            """if set(system_pods) == set(node_pods):
+                if node.unschedulable:
+                    return ClusterNodeState.IDLE_UNSCHEDULABLE
+                if drainable:
+                    return ClusterNodeState.UNDER_UTILIZED_DRAINABLE
+                return ClusterNodeState.UNDER_UTILIZED_UNDRAINABLE
+"""
         if maybe_inst is None:
             return ClusterNodeState.INSTANCE_TERMINATED
 
