@@ -157,6 +157,8 @@ spec:
             - --cluster-name
             - kubernetes
             - -vvv
+            - --idle-threshold
+            - "60"
             - --type-idle-threshold
             - "0"
             - --over-provision

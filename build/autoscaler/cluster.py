@@ -48,7 +48,7 @@ class ClusterNodeState(Enum):
     BUSY = 'busy'
     UNDER_UTILIZED_DRAINABLE = 'under-utilized-drainable'
     UNDER_UTILIZED_UNDRAINABLE = 'under-utilized-undrainable'
-    LAUNCH_HR_GRACE_PERIOD = 'launch-hr-grace-period'
+    #LAUNCH_HR_GRACE_PERIOD = 'launch-hr-grace-period'
     DETACHED = 'detached'
 
 
@@ -60,13 +60,15 @@ class Cluster(object):
     # and having to spin up nodes for every job submission
     TYPE_IDLE_COUNT = 5
 
+    #This in no longer true, payment is per-second nowadays
     # since we pay for the full hour, don't prematurely kill instances
+    """  
     # the number of minutes into the launch hour at which an instance
     # is fine to kill
     LAUNCH_HOUR_THRESHOLD = {
         'aws': 60 * 30,
         'azure': 60 * 5,  # Azure is billed by the minute
-    }
+    }"""
 
     # HACK: before we're ready to favor bigger instances in all cases
     # just prioritize the ones that we're confident about
@@ -366,7 +368,7 @@ class Cluster(object):
                          ClusterNodeState.GRACE_PERIOD,
                          ClusterNodeState.TYPE_GRACE_PERIOD,
                          ClusterNodeState.ASG_MIN_SIZE,
-                         ClusterNodeState.LAUNCH_HR_GRACE_PERIOD,
+                         #ClusterNodeState.LAUNCH_HR_GRACE_PERIOD,
                          ClusterNodeState.DETACHED):
                 # do nothing
                 pass
@@ -748,7 +750,7 @@ class Cluster(object):
         if maybe_inst:
             age = (datetime.datetime.now(maybe_inst.launch_time.tzinfo)
                    - maybe_inst.launch_time).seconds
-            launch_hour_offset = age % 3600
+            #launch_hour_offset = age % 3600
         else:
             age = None
 
@@ -769,7 +771,7 @@ class Cluster(object):
                 if drainable:
                     return ClusterNodeState.UNDER_UTILIZED_DRAINABLE
                 return ClusterNodeState.UNDER_UTILIZED_UNDRAINABLE
-"""
+            """
         if maybe_inst is None:
             return ClusterNodeState.INSTANCE_TERMINATED
 
@@ -791,25 +793,29 @@ class Cluster(object):
             # logger.warn('PENDING: %s', pending_list)
             return ClusterNodeState.POD_PENDING
 
+        """
         if launch_hour_offset < self.LAUNCH_HOUR_THRESHOLD[node.provider] and not node.unschedulable:
             return ClusterNodeState.LAUNCH_HR_GRACE_PERIOD
+        """
 
         # elif node.provider == 'azure':
             # disabling scale down in azure for now while we ramp up
             # TODO: remove once azure is bootstrapped
             # state = ClusterNodeState.GRACE_PERIOD
 
-        if (not type_spare_capacity and age <= self.idle_threshold) and not node.unschedulable:
+        if (age <= self.idle_threshold) and not node.unschedulable:
             # there is already an instance of this type sitting idle
             # so we use the regular idle threshold for the grace period
             return ClusterNodeState.GRACE_PERIOD
 
+        """ We have no interest in maintaining nodes of certain types running for no reason
         if (type_spare_capacity and age <= self.type_idle_threshold) and not node.unschedulable:
             # we don't have an instance of this type yet!
             # use the type idle threshold for the grace period
             # and mark the type as seen
             idle_selector_hash[instance_type] += 1
             return ClusterNodeState.TYPE_GRACE_PERIOD
+        """
 
         if under_utilized and (busy_list or not node.unschedulable):
             # nodes that are under utilized (but not completely idle)
@@ -840,7 +846,9 @@ class Cluster(object):
         for pod in pending_unassigned_pods:
             age = (now - pod.creation_time).total_seconds()
             self.stats.histogram('autoscaler.scaling_loop.pending_pod_age', age)
-
+            logger.info('+=+=+=+=+=+=Selectors for pod ' + pod.name +'+=+=+=+=+=+=')
+            for s in pod.selectors:
+                logger.info(s)
             if capacity.is_possible(pod):
                 pods_to_schedule.setdefault(
                     utils.selectors_to_hash(pod.selectors), []).append(pod)
