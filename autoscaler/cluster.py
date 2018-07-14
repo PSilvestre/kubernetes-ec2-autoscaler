@@ -30,6 +30,8 @@ from autoscaler.kube import KubePod, KubeNode, KubeResource, KubePodStatus
 import autoscaler.utils as utils
 
 # we are interested in all pods, incl. system ones
+from autoscaler.scaling_policy import CostBasedScalingPolicy
+
 pykube.Pod.objects.namespace = None
 
 logger = logging.getLogger(__name__)
@@ -85,7 +87,7 @@ class Cluster(object):
                  azure_client_id, azure_client_secret, azure_subscription_id, azure_tenant_id,
                  azure_resource_group_names, azure_slow_scale_classes, kubeconfig,
                  idle_threshold, type_idle_threshold, pod_namespace,
-                 instance_init_time, cluster_name, notifier,
+                 instance_init_time, cluster_name, notifier,scaling_policy_obj,
                  use_aws_iam_role=False,
                  drain_utilization_below=0.0,
                  max_scale_in_fraction=0.1,
@@ -109,6 +111,7 @@ class Cluster(object):
         self.ignore_system_pods = ignore_system_pods
         self.drain_utilization_below = drain_utilization_below
         self.max_scale_in_fraction = max_scale_in_fraction
+        self.scaling_policy_obj = scaling_policy_obj
         self._drained = {}
         self.session = None
         if aws_access_key and aws_secret_key:
@@ -323,11 +326,8 @@ class Cluster(object):
                     logger.info("{pod} fits on {node}".format(pod=pod,
                                                               node=fitting))
 
-        # scale each node type to reach the new capacity
-        for selectors_hash in set(pending_pods.keys()):
-            self.fulfill_pending(asgs,
-                                 selectors_hash,
-                                 pending_pods.get(selectors_hash, []))
+        self.scaling_policy_obj.apply(pending_pods, asgs)
+
 
         # TODO: make sure desired capacities of untouched groups are consistent
 
@@ -408,11 +408,15 @@ class Cluster(object):
             elif state == ClusterNodeState.INSTANCE_TERMINATED:
                 if not self.dry_run:
                     nodes_to_delete.append(node)
+                    if type(self.scaling_policy_obj) is CostBasedScalingPolicy:
+                        self.scaling_policy_obj.node_terminated(node.creation_time, node.instance_type)
                 else:
                     logger.info('[Dry run] Would have deleted %s', node)
             elif state == ClusterNodeState.DEAD:
                 if not self.dry_run:
                     nodes_to_delete.append(node)
+                    if type(self.scaling_policy_obj) is CostBasedScalingPolicy:
+                        self.scaling_policy_obj.node_terminated(node.creation_time, node.instance_type)
                     if asg:
                         nodes_to_scale_in.setdefault(asg, []).append(node)
                 else:
@@ -493,110 +497,6 @@ class Cluster(object):
                 logger.warn("Error while deleting Azure node: {}".format(e.message))
             except TimeoutError:
                 logger.warn("Timeout while deleting Azure node")
-
-    def fulfill_pending(self, asgs, selectors_hash, pods):
-        """
-        selectors_hash - string repr of selectors
-        pods - list of KubePods that are pending
-        """
-        logger.info(
-            "========= Scaling for %s ========", selectors_hash)
-        logger.debug("pending: %s", pods[:5])
-
-        accounted_pods = dict((p, False) for p in pods)
-        num_unaccounted = len(pods)
-
-        groups = utils.get_groups_for_hash(asgs, selectors_hash)
-
-        groups = self._prioritize_groups(groups)
-
-        async_operations = []
-        for group in groups:
-            logger.debug("group: %s", group)
-            if (self.autoscaling_timeouts.is_timed_out(group) or group.is_timed_out() or group.max_size == group.desired_capacity) \
-                    and not group.unschedulable_nodes:
-                continue
-
-            unit_capacity = capacity.get_unit_capacity(group)
-            new_instance_resources = []
-            assigned_pods = []
-            for pod, acc in accounted_pods.items():
-                if acc or not (unit_capacity - pod.resources).possible or not group.is_taints_tolerated(pod):
-                    continue
-
-                found_fit = False
-                for i, instance in enumerate(new_instance_resources):
-                    if (instance - pod.resources).possible:
-                        new_instance_resources[i] = instance - pod.resources
-                        assigned_pods[i].append(pod)
-                        found_fit = True
-                        break
-                if not found_fit:
-                    new_instance_resources.append(
-                        unit_capacity - pod.resources)
-                    assigned_pods.append([pod])
-
-            # new desired # machines = # running nodes + # machines required to fit jobs that don't
-            # fit on running nodes. This scaling is conservative but won't
-            # create starving
-            units_needed = len(new_instance_resources)
-            # The pods may not fit because of resource requests or taints. Don't scale in that case
-            if units_needed == 0:
-                continue
-            units_needed += self.over_provision
-
-            if self.autoscaling_timeouts.is_timed_out(group) or group.is_timed_out():
-                # if a machine is timed out, it cannot be scaled further
-                # just account for its current capacity (it may have more
-                # being launched, but we're being conservative)
-                unavailable_units = max(
-                    0, units_needed - (group.desired_capacity - group.actual_capacity))
-            else:
-                unavailable_units = max(
-                    0, units_needed - (group.max_size - group.actual_capacity))
-            units_requested = units_needed - unavailable_units
-
-            logger.debug("units_needed: %s", units_needed)
-            logger.debug("units_requested: %s", units_requested)
-
-            new_capacity = group.actual_capacity + units_requested
-            if not self.dry_run:
-                async_operation = group.scale(new_capacity)
-                async_operations.append(async_operation)
-
-                def notify_if_scaled(future):
-                    if future.result():
-                        flat_assigned_pods = []
-                        for instance_pods in assigned_pods:
-                            flat_assigned_pods.extend(instance_pods)
-                        self.notifier.notify_scale(group, units_requested, flat_assigned_pods)
-
-                async_operation.add_done_callback(notify_if_scaled)
-            else:
-                logger.info(
-                    '[Dry run] Would have scaled up (%s) to %s', group, new_capacity)
-
-            for i in range(min(len(assigned_pods), units_requested)):
-                for pod in assigned_pods[i]:
-                    accounted_pods[pod] = True
-                    num_unaccounted -= 1
-
-            logger.debug("remining pending: %s", num_unaccounted)
-
-            if not num_unaccounted:
-                break
-
-        if num_unaccounted:
-            logger.warn('Failed to scale sufficiently.')
-            self.notifier.notify_failed_to_scale(selectors_hash, pods)
-
-        for operation in async_operations:
-            try:
-                operation.result()
-            except CloudError as e:
-                logger.warn("Error while scaling Scale Set: {}".format(e.message))
-            except TimeoutError:
-                logger.warn("Timeout while scaling Scale Set")
 
     def get_running_instances_in_region(self, region, instance_ids):
         """

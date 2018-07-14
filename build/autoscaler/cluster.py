@@ -329,7 +329,6 @@ class Cluster(object):
                                  selectors_hash,
                                  pending_pods.get(selectors_hash, []))
 
-        # TODO: make sure desired capacities of untouched groups are consistent
 
     def maintain(self, cached_managed_nodes, running_insts_map,
                  pods_to_schedule, running_or_pending_assigned_pods, asgs):
@@ -494,8 +493,12 @@ class Cluster(object):
             except TimeoutError:
                 logger.warn("Timeout while deleting Azure node")
 
+
+
+
     def fulfill_pending(self, asgs, selectors_hash, pods):
-        """
+
+        """ For a selectors hash, figure out new instances of each group
         selectors_hash - string repr of selectors
         pods - list of KubePods that are pending
         """
@@ -560,6 +563,7 @@ class Cluster(object):
             logger.debug("units_requested: %s", units_requested)
 
             new_capacity = group.actual_capacity + units_requested
+            """UP TO HERE is Scaling policy"""
             if not self.dry_run:
                 async_operation = group.scale(new_capacity)
                 async_operations.append(async_operation)

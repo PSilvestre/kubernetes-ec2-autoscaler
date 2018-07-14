@@ -6,6 +6,7 @@ import click
 
 from autoscaler.cluster import Cluster
 from autoscaler.notification import Notifier
+from autoscaler.scaling_policy import *
 
 logger = logging.getLogger('autoscaler')
 
@@ -22,6 +23,10 @@ DEBUG_LOGGING_MAP = {
 @click.option("--aws-regions", default="us-west-1")
 @click.option("--sleep", default=60)
 @click.option("--ignore-system-pods", is_flag=True)
+@click.option("--scaling-policy", default = "basic", type=click.Choice(['basic', 'cost-based', 'growth-based']))
+@click.option("--max-cost-per-hour", default = 5) #In dollars
+@click.option("--trigger-growth-factor", default = 1.5) #In dollars
+@click.option("--num-triggers", default = 2) #In dollars
 @click.option("--kubeconfig", default=None,
               help='Full path to kubeconfig file. If not provided, '
                    'we assume that we\'re running on kubernetes.')
@@ -58,7 +63,9 @@ DEBUG_LOGGING_MAP = {
                    "for more verbosity.",
               type=click.IntRange(0, 3, clamp=True),
               count=True)
-def main(cluster_name, aws_regions, ignore_system_pods, azure_resource_groups, azure_slow_scale_classes, sleep, kubeconfig,
+def main(cluster_name, aws_regions, ignore_system_pods, scaling_policy, max_cost_per_hour,
+         trigger_growth_factor, num_triggers,
+         azure_resource_groups, azure_slow_scale_classes, sleep, kubeconfig,
          azure_client_id, azure_client_secret, azure_subscription_id, azure_tenant_id,
          aws_access_key, aws_secret_key, use_aws_iam_role, pod_namespace, datadog_api_key,
          idle_threshold, type_idle_threshold, max_scale_in_fraction, drain_utilization,
@@ -73,6 +80,13 @@ def main(cluster_name, aws_regions, ignore_system_pods, azure_resource_groups, a
     if not ((aws_secret_key and aws_access_key) or use_aws_iam_role) and aws_regions_list:
         logger.error("Missing AWS credentials. Please provide aws-access-key and aws-secret-key.")
         sys.exit(1)
+
+    if scaling_policy == 'basic':
+        scaling_policy_obj = BasicScalingPolicy()
+    if scaling_policy == 'cost-based':
+        scaling_policy_obj = CostBasedScalingPolicy(max_cost_per_hour, aws_regions_list[0])
+    if scaling_policy == 'growth-based':
+        scaling_policy_obj = GrowthBasedScalingPolicy(trigger_growth_factor, num_triggers)
 
     notifier = Notifier(slack_hook, slack_bot_token)
     cluster = Cluster(aws_access_key=aws_access_key,
@@ -100,6 +114,7 @@ def main(cluster_name, aws_regions, ignore_system_pods, azure_resource_groups, a
                       datadog_api_key=datadog_api_key,
                       notifier=notifier,
                       dry_run=dry_run,
+                      scaling_policy_obj = scaling_policy_obj
                       )
     backoff = sleep
     while True:

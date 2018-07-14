@@ -1,0 +1,133 @@
+{
+    "region": {
+      "name": "eu-west-3",
+      "costs-per-hour": {
+        "t2.micro": {
+          "cost-per-hour": 0.0132
+        },
+        "t2.medium": {
+          "cost-per-hour": 0.0528
+        },
+        "m4.large": {
+          "cost-per-hour": 0.112
+        },
+        "m4.xlarge": {
+          "cost-per-hour": 0.224
+        },
+        "m4.2xlarge": {
+          "cost-per-hour": 0.448
+        },
+        "m4.4xlarge": {
+          "cost-per-hour": 0.896
+        },
+        "m4.10xlarge": {
+          "cost-per-hour": 0
+        },
+        "m4.16xlarge": {
+          "cost-per-hour": 0
+        },
+        "g2.2xlarge": {
+          "cost-per-hour": 0
+        },
+        "g2.8xlarge": {
+          "cost-per-hour": 0
+        },
+        "c4.2xlarge": {
+          "cost-per-hour": 0
+        },
+        "c4.4xlarge": {
+          "cost-per-hour": 0
+        },
+        "c4.8xlarge": {
+          "cost-per-hour": 0
+        },
+        "c4.xlarge": {
+          "cost-per-hour": 0
+        },
+        "c4.large": {
+          "cost-per-hour": 0
+        },
+        "p2.xlarge": {
+          "cost-per-hour": 0
+        },
+        "p2.8xlarge": {
+          "cost-per-hour": 0
+        },
+        "p2.16xlarge": {
+          "cost-per-hour": 0
+        },
+        "Standard_DS1": {
+          "cost-per-hour": 0
+        },
+        "Standard_D1_v2": {
+          "cost-per-hour": 0
+        },
+        "Standard_D2_v2": {
+          "cost-per-hour": 0
+        },
+        "Standard_D3_v2": {
+          "cost-per-hour": 0
+        },
+        "Standard_D4_v2": {
+          "cost-per-hour": 0
+        },
+        "Standard_D5_v2": {
+          "cost-per-hour": 0
+        },
+        "Standard_D11_v2": {
+          "cost-per-hour": 0
+        },
+        "Standard_D12_v2": {
+          "cost-per-hour": 0
+        },
+        "Standard_D13_v2": {
+          "cost-per-hour": 0
+        },
+        "Standard_D14_v2": {
+          "cost-per-hour": 0
+        },
+        "Standard_D15_v2": {
+          "cost-per-hour": 0
+        },
+        "Standard_DS15_v2": {
+          "cost-per-hour": 0
+        },
+        "Standard_NC6": {
+          "cost-per-hour": 0
+        },
+        "Standard_NC12": {
+          "cost-per-hour": 0
+        },
+        "Standard_NC24": {
+          "cost-per-hour": 0
+        },
+        "Standard_ND6s": {
+          "cost-per-hour": 0
+        },
+        "Standard_ND12s": {
+          "cost-per-hour": 0
+        },
+        "Standard_ND24s": {
+          "cost-per-hour": 0
+        },
+        "Standard_H8": {
+          "cost-per-hour": 0
+        },
+        "Standard_H16": {
+          "cost-per-hour": 0
+        },
+        "Standard_H8m": {
+          "cost-per-hour": 0
+        },
+        "Standard_H16m": {
+          "cost-per-hour": 0
+        },
+        "Standard_H16r": {
+          "cost-per-hour": 0
+        },
+        "Standard_H16mr": {
+          "cost-per-hour": 0
+        }
+      }
+    }
+}
