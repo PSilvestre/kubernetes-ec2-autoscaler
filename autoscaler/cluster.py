@@ -326,7 +326,7 @@ class Cluster(object):
                     logger.info("{pod} fits on {node}".format(pod=pod,
                                                               node=fitting))
 
-        self.scaling_policy_obj.apply(pending_pods, asgs)
+        self.scaling_policy_obj.apply(pending_pods, asgs, self)
 
 
         # TODO: make sure desired capacities of untouched groups are consistent
@@ -399,6 +399,8 @@ class Cluster(object):
                 # remove it from asg
                 if not self.dry_run:
                     nodes_to_delete.append(node)
+                    if type(self.scaling_policy_obj) is CostBasedScalingPolicy:
+                        self.scaling_policy_obj.node_terminated(node.creation_time, node.instance_type)
                     if not asg:
                         logger.warn('Cannot find ASG for node %s. Not terminated.', node)
                     else:

@@ -1,3 +1,4 @@
+import datetime
 from abc import abstractmethod
 import time
 import autoscaler.autoscaling_groups as autoscaling_groups
@@ -44,10 +45,10 @@ class ScalingPolicy:
         async_operation.add_done_callback(notify_if_scaled)
         return async_operation
 
-    def apply(self, pending_pods, asgs):
+    def apply(self, pending_pods, asgs, cluster):
         async_operations = []
         for selectors_hash in set(pending_pods.keys()):
-            self.decide_num_instances(pending_pods, asgs, async_operations)
+            self.decide_num_instances(cluster, pending_pods, asgs, async_operations)
         self.fulfill_requests(async_operations)
 
     def decide_num_instances(self, cluster, pending_pods, asgs, async_operations):
@@ -59,10 +60,10 @@ class ScalingPolicy:
 
             groups = utils.get_groups_for_hash(asgs, selectors_hash)
 
-            groups = self._prioritize_groups(groups)
+            groups = cluster._prioritize_groups(groups)
 
             for group in groups:
-                if (self.autoscaling_timeouts.is_timed_out(
+                if (cluster.autoscaling_timeouts.is_timed_out(
                         group) or group.is_timed_out() or group.max_size == group.desired_capacity) \
                         and not group.unschedulable_nodes:
                     continue
@@ -93,9 +94,9 @@ class ScalingPolicy:
                 # The pods may not fit because of resource requests or taints. Don't scale in that case
                 if units_needed == 0:
                     continue
-                units_needed += self.over_provision
+                units_needed += cluster.over_provision
 
-                if self.autoscaling_timeouts.is_timed_out(group) or group.is_timed_out():
+                if cluster.autoscaling_timeouts.is_timed_out(group) or group.is_timed_out():
                     # if a machine is timed out, it cannot be scaled further
                     # just account for its current capacity (it may have more
                     # being launched, but we're being conservative)
@@ -126,25 +127,32 @@ class CostBasedScalingPolicy(ScalingPolicy):
         self.spent_this_hour = 0
         self.num_seconds_instances_used = 0
         self.num_instances_tracked = 0
+
         with open(Config.COST_DATA, 'r') as f:
             data = json.loads(f.read())
             for json_region, region_data in data.items():
                 if region_data['name'] == self.region:
-                    self.costs_per_hour = region_data['costs_per_hour']
+                    self.costs_per_hour = region_data['costs-per-hour']
 
-    def apply(self, pending_pods, asgs):
+    def apply(self, pending_pods, asgs, cluster):
         async_operations = []
-        logger.info('Cost Based Policy Stats:    Hours: ' + self.num_hours + ' max per hour: ' + self.max_cost_per_hour + ' spent this hour: ' + self.spent_this_hour)
+        avg_hours_used_per_instance = 0.25
+
+        if self.num_instances_tracked > 0:
+            avg_hours_used_per_instance = self.num_seconds_instances_used / self.num_instances_tracked / 3600
+        logger.info('Cost Based Policy Stats:    Hours: ' + str(self.num_hours) + ' max per hour: ' + str(self.max_cost_per_hour) + ' spent this hour: ' + str(self.spent_this_hour)
+                     + ' avg duration: ' + str(avg_hours_used_per_instance))
         for selectors_hash in set(pending_pods.keys()):
-            self.decide_num_instances(pending_pods, asgs, async_operations)
+            self.decide_num_instances(cluster, pending_pods, asgs, async_operations)
         self.fulfill_requests(async_operations)
 
     def node_terminated(self, creation_time, instance_type):
-        time_used_by_instance = (time.time() - creation_time)
+        creation_time_epoch = (creation_time.replace(tzinfo=None) - datetime.datetime(1970,1,1)).total_seconds()
+        time_used_by_instance = (time.time() - creation_time_epoch)
         self.num_seconds_instances_used += time_used_by_instance
         self.num_instances_tracked += 1
         # cost of instance type * num hours used
-        self.spent_this_hour += self.costs_per_hour[instance_type] * (time_used_by_instance / 3600)
+        self.spent_this_hour += self.costs_per_hour[instance_type]['cost-per-hour'] * (time_used_by_instance / 3600)
 
 
     def decide_num_instances(self, cluster, pending_pods, asgs, async_operations):
@@ -162,10 +170,10 @@ class CostBasedScalingPolicy(ScalingPolicy):
 
             groups = utils.get_groups_for_hash(asgs, selectors_hash)
 
-            groups = self._prioritize_groups(groups)
+            groups = cluster._prioritize_groups(groups)
 
             for group in groups:
-                if (self.autoscaling_timeouts.is_timed_out(
+                if (cluster.autoscaling_timeouts.is_timed_out(
                         group) or group.is_timed_out() or group.max_size == group.desired_capacity) \
                         and not group.unschedulable_nodes:
                     continue
@@ -196,9 +204,9 @@ class CostBasedScalingPolicy(ScalingPolicy):
                 # The pods may not fit because of resource requests or taints. Don't scale in that case
                 if units_needed == 0:
                     continue
-                units_needed += self.over_provision
+                units_needed += cluster.over_provision
 
-                if self.autoscaling_timeouts.is_timed_out(group) or group.is_timed_out():
+                if cluster.autoscaling_timeouts.is_timed_out(group) or group.is_timed_out():
                     # if a machine is timed out, it cannot be scaled further
                     # just account for its current capacity (it may have more
                     # being launched, but we're being conservative)
@@ -209,17 +217,21 @@ class CostBasedScalingPolicy(ScalingPolicy):
                         0, units_needed - (group.max_size - group.actual_capacity))
                 units_requested = units_needed - unavailable_units
 
+                avg_hours_used_per_instance = 0.25
+
+                if self.num_instances_tracked > 0:
+                    avg_hours_used_per_instance = self.num_seconds_instances_used / self.num_instances_tracked / 3600
                 # If we've used 75% of budget stop provisioning. No guarantees we wont go over budget,
                 # but conservative enough for most uses.
+
                 for i in range(units_requested):
-                    predicted_cost = self.spent_this_hour + (i + 1) * avg_hours_used_per_instance * self.costs_per_hour[
-                        group.instance_type]
+                    predicted_cost = self.spent_this_hour + (i + 1) * avg_hours_used_per_instance * self.costs_per_hour[group.instance_type]['cost-per-hour']
                     if predicted_cost > self.max_cost_per_hour * 0.75:
                         units_requested = i + 1
                         break
 
                 new_capacity = group.actual_capacity + units_requested
-                avg_hours_used_per_instance = self.num_seconds_instances_used / self.num_instances_tracked / 3600
+
 
                 async_operations.append(
                     self.create_async_operation(cluster, group, assigned_pods, new_capacity, units_requested))
@@ -234,21 +246,23 @@ class GrowthBasedScalingPolicy(ScalingPolicy):
         self.num_triggers = 0
         self.last_num_pods = 0;
 
-    def apply(self, pending_pods, asgs):
-        if len(pending_pods) > self.trigger_growth_factor * self.last_num_pods:
+    def apply(self, pending_pods, asgs, cluster):
+        num_pending_pods = sum(len(podlist) for podlist in pending_pods.values())
+        if num_pending_pods > self.trigger_growth_factor * self.last_num_pods:
             self.num_triggers += 1
-            self.last_num_pods = len(pending_pods)
-            logger.info()
+            self.last_num_pods = num_pending_pods
         else:
+            if num_pending_pods < self.last_num_pods * 0.75:
+                self.num_triggers = 0
+                self.last_num_pods = 0;
+        logger.info(
+            'Growth Based Policy Stats:    num_triggers_to_provision: ' + str(self.num_triggers_to_provision) + ' trigger_growth_factor: '
+            + str(self.trigger_growth_factor) + ' num_triggers: ' + str(self.num_triggers) + ' last_num_pods: ' + str(self.last_num_pods) + ' curr_num_pods: ' + str(num_pending_pods))
+        if self.num_triggers >= self.num_triggers_to_provision:
             self.num_triggers = 0
             self.last_num_pods = 0;
-        logger.info(
-            'Growth Based Policy Stats:    num_triggers_to_provision: ' + self.num_triggers_to_provision + ' trigger_growth_factor: '
-            + self.trigger_growth_factor + ' num_triggers: ' + self.num_triggers + ' last_num_pods: ' + self.last_num_pods + ' curr_num_pods: ' + len(
-                pending_pods))
-        if self.num_triggers >= self.num_triggers_to_provision:
             async_operations = []
             logger.info('Growth Based Policy Trigger! Growing Cluster!')
             for selectors_hash in set(pending_pods.keys()):
-                self.decide_num_instances(pending_pods, asgs, async_operations)
+                self.decide_num_instances(cluster, pending_pods, asgs, async_operations)
             self.fulfill_requests(async_operations)

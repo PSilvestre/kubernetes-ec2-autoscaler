@@ -172,6 +172,8 @@ spec:
             - --max-scale-in-fraction
             - "1.0"
             - --ignore-system-pods
+            - --scaling-policy
+            - "growth-based"
         imagePullPolicy: Always
       restartPolicy: Always
 #      dnsPolicy: Default  # Don't use cluster DNS.
